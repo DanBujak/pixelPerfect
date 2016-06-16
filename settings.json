@@ -1,0 +1,39 @@
+{
+	"version": 1.0,
+	"panel_enabled": false,
+	"emulator_enabled": true,
+	"test_mode": 0,
+	"fps": 15,
+	"grid_size": 30,
+	"pixel_size": 30,
+	"pixel_style": "square",
+	"serial": {
+		"port": 10,
+		"baud": 800000
+	},
+	"clock" : {
+		"time": {
+			"wakeup": 800,
+			"sleep": 1900,
+			"am": 800,
+			"noon": 1200,
+			"pm": 1800,
+			"night": 1900
+		},
+		"color": {
+			"am": "3F3F7F",
+			"noon": "003F7F",
+			"pm": "3F003F",
+			"night": "220022",
+			"black": "000000"
+		}
+	},
+	"visibul": {
+		"x": 595,
+		"y": 61,
+		"rows": 3,
+		"columns": 3,
+		"grid_size": 30,
+		"cycle_time": 5
+	}
+}
