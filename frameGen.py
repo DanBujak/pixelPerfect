@@ -2,7 +2,7 @@
 
 from globalConfigs import *
 import numpy as np
-from time import sleep
+from configs import COLOUR_BLACK, COLOUR_WHITE
 
 ''' colour = 'FF00FF' '''
 def blank_frame(colour):
@@ -47,19 +47,43 @@ def test_pattern(colour):
     GRID_SIZE (ie amplitudes) for the frequency band being sampled. '''
 def audio_frame(sample):
     #print sample
-    LOW_COLOUR = "003F00"
-    MID_COLOUR = "3F3F00"
-    HIGH_COLOUR = "3F0000"
+    COLOURS = [ [   40, 96,  55 ], 
+                [  57, 108,  55 ], 
+                [  72, 117,  55 ], 
+                [  87, 128,  55 ], 
+                [ 102, 138,  55 ], 
+                [ 118, 149,  55 ], 
+                [ 133, 160,  55 ], 
+                [ 148, 171,  55 ], 
+                [ 163, 181,  55 ], 
+                [ 179, 192,  55 ], 
+                [ 209, 213,  55 ], 
+                [ 224, 224,  55 ], 
+                [ 239, 235,  55 ], 
+                [ 255, 246,  55 ], 
+                [ 255, 246,  55 ],
+                [ 254, 229,  52 ], 
+                [ 254, 213,  48 ], 
+                [ 254, 197,  44 ], 
+                [ 254, 180,  40 ],
+                [ 254, 164,  36 ], 
+                [ 254, 148,  32 ], 
+                [ 254, 132,  28 ], 
+                [ 254, 115,  24 ], 
+                [ 254,  99,  20 ], 
+                [ 254,  83,  16 ], 
+                [ 254,  66,  12 ], 
+                [ 254,  50,   8 ], 
+                [ 254,  34,   4 ], 
+                [ 254,  18,   0 ],                
+                [ 254,   2,   0 ] ]
 
-    outputArray = blank_frame(HIGH_COLOUR)
+    outputArray = blank_frame(COLOUR_BLACK)
 
     for col in range(0,GRID_SIZE):
-        #print "C: " + str(col)
         for row in range(GRID_SIZE-sample[col], GRID_SIZE):
-            #print "\tR: " + str(row)
-            outputArray[row,col] = [255, 0, 0]
-        #sleep (1)
-    
+            outputArray[row,col] = COLOURS[col]
+
     return outputArray
 
 #'''

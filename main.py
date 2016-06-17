@@ -4,23 +4,26 @@ import json
 with open('settings.json') as settings_file:
     settings = json.load(settings_file)
 
-import numpy as np
+# System Modules
 import datetime
 import sys
 import time
-import frameGen
-import audio
-import clockFunc
-import pyscreenshot as ImageGrab
 from datetime import timedelta
-from PIL import Image
-#from Image import ANTIALIAS
+# PixelPerfext Modules
+import frameGen
+import clockFunc
 from globalConfigs import *
 from configs import *
 from clockParams import *
-from instagramParams import * 
 from emulator import *
 from pprint import pprint
+#Audio Imports
+from PIL import Image
+import pyscreenshot as ImageGrab
+import numpy as np
+import pyaudio
+from scipy.fftpack import fft
+
 
 # ------------------- User Configurations ----------------
 SERIAL_PORT		= settings["serial"]["port"]	# PC COM Port - 1
@@ -39,6 +42,61 @@ VISIBUL_COLUMNS		= settings["visibul"]["columns"] - 1
 VISIBUL_ROWS		= settings["visibul"]["rows"] - 1
 VISIBUL_CYCLE_TIME	= settings["visibul"]["cycle_time"]
 
+
+# -------------------- Audio Configs ------------------
+MAX_AMPLITUDE = 3000            # Maximum audio level to clip at
+VIDEO_RATE = 20                 # Frame rate of display (should be set dynamically based on existing user config)
+FORMAT = pyaudio.paInt16        # Audio bit depth
+CHANNELS = 1                    # Number of audio channels to record
+AUDIO_RATE = 8000               # Sampling frequency of audio
+CHUNK = AUDIO_RATE/VIDEO_RATE   # Set 1 CHUNK to be 1 video frame's worth of data
+INTERVAL = int(CHUNK/2/GRID_SIZE)   # Interval size to average entire audio spectrum on to map it into our grid size
+
+p = pyaudio.PyAudio()
+stream = p.open(format=FORMAT,
+    channels=CHANNELS,
+    rate=AUDIO_RATE,
+    input=True,
+    frames_per_buffer=CHUNK)
+print("* Recording...")
+
+def generateSample():
+    processedSamples = []
+    dataOut = []
+    scaledData = []
+    
+    nextSample = stream.read(CHUNK)
+    nextSample = np.fromstring(nextSample, dtype=np.int16)
+    npSample = np.hstack(nextSample)
+    
+    # this is 8-bit track, b is now normalized on [-1,1)
+    #b =[(ele/2**8.)*2-1 for ele in npSample] 
+    for e in npSample:
+        processedSamples.append((float( e / 2**8) * 2) - 1)
+
+    # calculate fourier transform (complex numbers list)
+    processedSamples = fft(processedSamples) 
+    
+    # Calculate absolute values of processed sampels
+    processedSamples = map(np.absolute, processedSamples)
+    
+    # Divide the audio input range into GRID_SIZE number of ranges and
+    # take the average of each of the groups. Map the average amplitude
+    # to the range of our resolution and round to nearest int
+    start = 0
+    end = INTERVAL
+    for o in range(0,GRID_SIZE):
+        start = start + INTERVAL
+        end = end + INTERVAL
+        nextAmplitude = np.mean(processedSamples[start:end])
+        nextAmplitude = int((nextAmplitude /MAX_AMPLITUDE) * GRID_SIZE)
+        scaledData.append(min(nextAmplitude, GRID_SIZE))
+    return scaledData
+
+
+############################################
+
+
 # ------------------- Global Variables ----------------
 LastState = STATE_CLOCK
 CurrentState = STATE_CLOCK
@@ -50,7 +108,7 @@ visibullCycle = False
 State = {
     0: STATE_CLOCK,
     1: STATE_VISIBULL,
-    2: STATE_INSTAGRAM,
+    2: STATE_AUDIO,
     3: STATE_CUSTOM,
     4: STATE_SHUTDOWN
 }
@@ -58,15 +116,13 @@ State = {
 StateText = {
     0: "Clock",
     1: "Visibull",
-    2: "Instagram",
+    2: "Audio",
     3: "Custom"
 }
 
 wakeupTime = datetime.time(WAKEUP_TIME/100, WAKEUP_TIME%100)
 sleepTime = datetime.time(SHUTDOWN_TIME/100, SHUTDOWN_TIME%100)
 
-# Instagram Image persistence counter
-imagePersist = 0
 
 def Initialize_UART():
     # Only need serial if panel is connected 
@@ -81,8 +137,8 @@ def Initialize_UART():
 def Transition_State(nextState):
     if (nextState == STATE_CLOCK):
         FPS = 10
-    elif (nextState == STATE_INSTAGRAM):
-        FPS = 10
+    elif (nextState == STATE_AUDIO):
+        FPS = 20
     elif (nextState == STATE_VISIBULL):
         FPS = 10
     elif (nextState == STATE_CUSTOM):
@@ -213,10 +269,9 @@ if __name__ == '__main__':
 			# Update panel data and send to serial port if panel is connected
 			#sim1.updateCells(writeFrame, PANEL_ENABLE, comPort)
         
-        # - >> Instagram Mode << ---------------------------------------
-        elif (CurrentState == STATE_INSTAGRAM):
-            #print "Audio"
-            audioData = audio.generateSample()
+        # - >> Audio Mode << -------------------------------------------
+        elif (CurrentState == STATE_AUDIO):
+            audioData = generateSample()
             writeFrame = frameGen.audio_frame(audioData)
         
         # - >> Custom Mode << ---------------------------------------

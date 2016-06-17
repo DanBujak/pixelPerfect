@@ -25,7 +25,8 @@
 			"noon": "003F7F",
 			"pm": "3F003F",
 			"night": "220022",
-			"black": "000000"
+			"black": "000000",
+            "white": "AAAAAA"
 		}
 	},
 	"visibul": {

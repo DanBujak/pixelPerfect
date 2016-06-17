@@ -1,6 +1,8 @@
 #!/usr/bin/python
 import json
 
+GRID_SIZE = 30              # Display resolution ( n x n )
+
 with open('settings.json') as settings_file:
     settings = json.load(settings_file)
 
@@ -24,9 +26,10 @@ TIME_PM = settings["clock"]["time"]["pm"]
 TIME_NIGHT = settings["clock"]["time"]["night"]
 
 STATE_CLOCK = 0
-STATE_INSTAGRAM = 1
-STATE_VISIBULL = 2
+STATE_VISIBULL = 1
+STATE_AUDIO = 2
 STATE_CUSTOM = 3
 STATE_SHUTDOWN = 4
 
 COLOUR_BLACK = settings["clock"]["color"]["black"]
+COLOUR_WHITE = settings["clock"]["color"]["white"]
