@@ -17,49 +17,76 @@ from configs import *
 from clockParams import *
 from emulator import *
 from pprint import pprint
+import wx
 #Audio Imports
 from PIL import Image
-import pyscreenshot as ImageGrab
 import numpy as np
 import pyaudio
 from scipy.fftpack import fft
 
-
 # ------------------- User Configurations ----------------
-SERIAL_PORT		= settings["serial"]["port"]	# PC COM Port - 1
-PANEL_ENABLE		= settings["panel_enabled"]	# Enable/Disable UART Output
-EMULATOR_ENABLE		= settings["emulator_enabled"]	# Enable/Disable Emulator
-TEST_MODE		= settings["test_mode"]
-FPS			= settings["fps"]		# Frame Rate
-GRID_SIZE		= settings["grid_size"]		# Display resolution ( n x n )
-PIXEL_SIZE		= settings["pixel_size"]	# Size of each pixel for emulator (in pixels)
-PIXEL_STYLE		= settings["pixel_style"]	# Emulator pixel style
+SERIAL_PORT        = settings["serial"]["port"]    # PC COM Port - 1
+PANEL_ENABLE        = settings["panel_enabled"]    # Enable/Disable UART Output
+EMULATOR_ENABLE        = settings["emulator_enabled"]    # Enable/Disable Emulator
+TEST_MODE        = settings["test_mode"]
+FPS            = settings["fps"]        # Frame Rate
+GRID_SIZE        = settings["grid_size"]        # Display resolution ( n x n )
+PIXEL_SIZE        = settings["pixel_size"]    # Size of each pixel for emulator (in pixels)
+PIXEL_STYLE        = settings["pixel_style"]    # Emulator pixel style
 # ------------------- Visbul Variables ----------------
-VISIBUL_X_PIX		= settings["visibul"]["x"]
-VISIBUL_Y_PIX		= settings["visibul"]["y"]
-VISIBUL_GRID_SIZE	= settings["visibul"]["grid_size"]
-VISIBUL_COLUMNS		= settings["visibul"]["columns"] - 1
-VISIBUL_ROWS		= settings["visibul"]["rows"] - 1
-VISIBUL_CYCLE_TIME	= settings["visibul"]["cycle_time"]
+VISIBUL_X_PIX        = settings["visibul"]["x"]
+VISIBUL_Y_PIX        = settings["visibul"]["y"]
+VISIBUL_GRID_SIZE    = settings["visibul"]["grid_size"]
+VISIBUL_COLUMNS        = settings["visibul"]["columns"] - 1
+VISIBUL_ROWS        = settings["visibul"]["rows"] - 1
+VISIBUL_CYCLE_TIME    = settings["visibul"]["cycle_time"]
 
 
 # -------------------- Audio Configs ------------------
-MAX_AMPLITUDE = 3000            # Maximum audio level to clip at
-VIDEO_RATE = 20                 # Frame rate of display (should be set dynamically based on existing user config)
-FORMAT = pyaudio.paInt16        # Audio bit depth
-CHANNELS = 1                    # Number of audio channels to record
-AUDIO_RATE = 8000               # Sampling frequency of audio
-CHUNK = AUDIO_RATE/VIDEO_RATE   # Set 1 CHUNK to be 1 video frame's worth of data
-INTERVAL = int(CHUNK/2/GRID_SIZE)   # Interval size to average entire audio spectrum on to map it into our grid size
+MAX_AMPLITUDE = settings["audio"]["max_amplitude"]      # Maximum audio level to clip at
+AUDIO_RATE = settings["audio"]["audio_rate"]            # Sampling frequency of audio
+VIDEO_RATE = 25                                         # Frame rate of display (should be set dynamically based on existing user config)
+FORMAT = pyaudio.paInt16                                # Audio bit depth
+CHANNELS = 1                                            # Number of audio channels to record
+CHUNK = AUDIO_RATE/VIDEO_RATE                           # Set 1 CHUNK to be 1 video frame's worth of data
+INTERVAL = int(CHUNK/2/GRID_SIZE)                       # Interval size to average entire audio spectrum on to map it into our grid size
 
+# ------------------- Global Variables ----------------
+LastState = STATE_CLOCK
+CurrentState = STATE_CLOCK
+NextState = STATE_CLOCK
+StateCounter = 0
+sdOverride = False
+visibullCycle = False
+    
+State = {
+    0: STATE_CLOCK,
+    1: STATE_VISIBULL,
+    2: STATE_AUDIO,
+    3: STATE_SHUTDOWN
+}
+
+StateText = {
+    0: "Clock",
+    1: "Visibull",
+    2: "Audio"
+}
+
+wakeupTime = datetime.time(WAKEUP_TIME/100, WAKEUP_TIME%100)
+sleepTime = datetime.time(SHUTDOWN_TIME/100, SHUTDOWN_TIME%100)
+sleepOverride = False
+
+# Open sound stream from default mic 
 p = pyaudio.PyAudio()
 stream = p.open(format=FORMAT,
     channels=CHANNELS,
     rate=AUDIO_RATE,
     input=True,
     frames_per_buffer=CHUNK)
-print("* Recording...")
 
+'''
+Capture the audio, filter it, run fft and split it into 30 bands
+'''
 def generateSample():
     processedSamples = []
     dataOut = []
@@ -93,59 +120,37 @@ def generateSample():
         scaledData.append(min(nextAmplitude, GRID_SIZE))
     return scaledData
 
-
-############################################
-
-
-# ------------------- Global Variables ----------------
-LastState = STATE_CLOCK
-CurrentState = STATE_CLOCK
-NextState = STATE_CLOCK
-StateCounter = 0
-sdOverride = False
-visibullCycle = False
-    
-State = {
-    0: STATE_CLOCK,
-    1: STATE_VISIBULL,
-    2: STATE_AUDIO,
-    3: STATE_CUSTOM,
-    4: STATE_SHUTDOWN
-}
-
-StateText = {
-    0: "Clock",
-    1: "Visibull",
-    2: "Audio",
-    3: "Custom"
-}
-
-wakeupTime = datetime.time(WAKEUP_TIME/100, WAKEUP_TIME%100)
-sleepTime = datetime.time(SHUTDOWN_TIME/100, SHUTDOWN_TIME%100)
-
-
+'''
+Initialize UART connection
+'''
 def Initialize_UART():
     # Only need serial if panel is connected 
     if (PANEL_ENABLE == True):
         import serial
-        serPort = serial.Serial(SERIAL_PORT - 1, BAUD, timeout = 1)  # open first serial port
+        serPort = serial.Serial(SERIAL_PORT - 1, BAUD, timeout = 1)  # open serial port
     else:
         serPort = None
     
     return serPort
 
+'''
+Set framerate and state variable on transition
+'''
 def Transition_State(nextState):
+    global FPS
+
     if (nextState == STATE_CLOCK):
-        FPS = 10
+        FPS = 5
     elif (nextState == STATE_AUDIO):
-        FPS = 20
+        FPS = VIDEO_RATE
     elif (nextState == STATE_VISIBULL):
-        FPS = 10
-    elif (nextState == STATE_CUSTOM):
-        FPS = 20
+        FPS = 25
     elif (nextState == STATE_SHUTDOWN):
         FPS = 1
 
+'''
+Debug function to test clock
+'''
 def addMins(tm, mins):
     fulldate = datetime.datetime(100, 1, 1, tm.hour, tm.minute, tm.second)
     fulldate = fulldate + datetime.timedelta(minutes=mins)
@@ -155,43 +160,39 @@ def toggleDisplay(state):
     global LastState, CurrentState, NextState, sdOverride
     
     if (CurrentState == STATE_SHUTDOWN):
-	NextState = LastState
-	sdOverride = False
-	print "Wakeup"
+        NextState = LastState
+        sdOverride = False
+        print "Wakeup"
     else:
-	NextState = STATE_SHUTDOWN
-	LastState = state
-	sdOverride = True
-	print "Sleep"
+        NextState = STATE_SHUTDOWN
+        LastState = state
+        sdOverride = True
+        print "Sleep"
     pass
 
-def cycleState():
-    global NextState, StateCounter
-    
-    StateCounter = StateCounter + 1
-    
-    if (StateCounter > 2):
-	StateCounter = 0
-    
-    NextState = State[StateCounter]
-    
-    print "Current State: " + StateText[StateCounter]
-
+'''
+Automatically cycle through visibull displays
+'''
 def cycleVisibulGrid():
     global CurrentFrameX, CurrentFrameY, VISIBUL_COLUMNS, VISIBUL_ROWS
     
     CurrentFrameX = CurrentFrameX + 1
     
     if (CurrentFrameX > VISIBUL_COLUMNS):
-	CurrentFrameY = CurrentFrameY + 1
-	CurrentFrameX = 0
+        CurrentFrameY = CurrentFrameY + 1
+        CurrentFrameX = 0
     
     if (CurrentFrameY > VISIBUL_ROWS):
-	CurrentFrameY = 0
+        CurrentFrameY = 0
+
 '''
 Main function- maintains display
 '''
 if __name__ == '__main__':
+    # Create an App instance for screen capture
+    wxInstance = wx.App()
+    screen = wx.ScreenDC()
+    
     # Create Clock instance
     clock = pygame.time.Clock()
     
@@ -208,9 +209,8 @@ if __name__ == '__main__':
     currentTime = datetime.datetime.now().time()
 
     # Capture Area
-    ssX =     VISIBUL_X_PIX
-    ssY =     VISIBUL_Y_PIX
-    ssBox = (ssX, ssY, ssX + GRID_SIZE, ssY + GRID_SIZE)
+    ssX = VISIBUL_X_PIX
+    ssY = VISIBUL_Y_PIX
     
     CurrentFrameX = 0
     CurrentFrameY = 0
@@ -231,7 +231,7 @@ if __name__ == '__main__':
     while(1):
         
     #>> Pre-State Global Actions ---------------------------------------
-
+        
         # Update time variable
         if (TEST_MODE == 0):
             currentTime = datetime.datetime.now().time()
@@ -248,39 +248,56 @@ if __name__ == '__main__':
 
 
     #>> Service current state 
+        # Put the panel to sleep durring sleep hours unless the override is enabled
+        if ((currentTime < wakeupTime or currentTime > sleepTime) and not sleepOverride):
+            writeFrame = frameGen.blank_frame(COLOUR_BLACK)
+        else:
+            # Reset the sleep override during waking hours
+            if ((currentTime > wakeupTime and currentTime < sleepTime) and sleepOverride):
+                sleepOverride = False
+            
+            # - >> Clock Display << ----------------------------------------
+            if (CurrentState == STATE_CLOCK):
+                bgColor = clockFunc.Time_to_Colour(currentTime)
 
-        # - >> Clock Display << ----------------------------------------
-        if (CurrentState == STATE_CLOCK):
-            bgColor = clockFunc.Time_to_Colour(currentTime)
+                # Generate clock frame
+                writeFrame = frameGen.blank_frame(bgColor)
+                writeFrame = clockFunc.generate_clock_frame(currentTime, writeFrame, np, '000000')
+            
+            # - >> Visibull << ---------------------------------------------
+            
+            elif (CurrentState == STATE_VISIBULL):
+                bmp = wx.EmptyBitmap(GRID_SIZE, GRID_SIZE)  
+                memory = wx.MemoryDC(bmp)
+                memory.Blit(0, 0, GRID_SIZE, GRID_SIZE, screen, ssX, ssY)
+                del memory
+                myWxImage = wx.ImageFromBitmap( bmp )
+                img = Image.frombytes('RGB', (GRID_SIZE, GRID_SIZE), myWxImage.GetData())
+                writeFrame = np.array(np.array(img))
+                
+                ##Update panel data and send to serial port if panel is connected
+                sim1.updateCells(writeFrame, PANEL_ENABLE, comPort)
+                
+                #if (CurrentState == STATE_VISIBULL):
+                currentTime = int(time.time())
+                
+                # Periodically cycle through visibull images if enabled
+                if (visibullCycle) and ((currentTime - startTime) % 5 == 0) and (currentTime != lastInterval):
+                    lastInterval = currentTime
+                    cycleVisibulGrid()
+                
+                # Update screen capture location
+                ssX = VISIBUL_X_PIX + (CurrentFrameX * VISIBUL_GRID_SIZE)
+                ssY = VISIBUL_Y_PIX + (CurrentFrameY * VISIBUL_GRID_SIZE)                
+                    
+            # - >> Audio Mode << -------------------------------------------
+            elif (CurrentState == STATE_AUDIO):
+                audioData = generateSample()
+                writeFrame = frameGen.audio_frame(audioData)
 
-            # Generate clock frame
-            writeFrame = frameGen.blank_frame(bgColor)
-            writeFrame = clockFunc.generate_clock_frame(currentTime, writeFrame, np, '000000')
-        
-        # - >> Visibull << ---------------------------------------------
-        
-        elif (CurrentState == STATE_VISIBULL):
-			ssBox = (ssX, ssY, ssX + GRID_SIZE, ssY + GRID_SIZE)
-
-			screenShot = ImageGrab.grab(ssBox)
-			#thumb = screenShot.resize((GRID_SIZE,GRID_SIZE), ANTIALIAS)
-			writeFrame = np.array(screenShot)
-
-			# Update panel data and send to serial port if panel is connected
-			#sim1.updateCells(writeFrame, PANEL_ENABLE, comPort)
-        
-        # - >> Audio Mode << -------------------------------------------
-        elif (CurrentState == STATE_AUDIO):
-            audioData = generateSample()
-            writeFrame = frameGen.audio_frame(audioData)
-        
-        # - >> Custom Mode << ---------------------------------------
-        elif (CurrentState == STATE_CUSTOM):
-            print "State Not Yet Available"
-        
-        # - >> Shutdown State << ---------------------------------------
-        elif (CurrentState == STATE_SHUTDOWN):
-	    writeFrame = frameGen.blank_frame(COLOUR_BLACK)
+            # - >> Shutdown State << ---------------------------------------
+            elif (CurrentState == STATE_SHUTDOWN):
+                writeFrame = frameGen.blank_frame(COLOUR_BLACK)
 
     #>> Post-State Global Actions --------------------------------------
 
@@ -293,73 +310,70 @@ if __name__ == '__main__':
             pygame.display.flip()
 
         events = pygame.event.get()
+        
         for e in events:
-	    if (e.type == KEYDOWN):
-		# print "Key Code: " + str(e.key)
-		
-		mods = pygame.key.get_mods()
-		
-		# Toggle Display On/Off
-		if (e.key == 261 or e.key == 32): # Space Key (5)
-		    toggleDisplay(CurrentState)
-		
-		if (CurrentState == STATE_VISIBULL):
-		    # Adjust Visibull Screen Capture (Numpad Arrows)
-		    if (e.key == 260 or e.key == 276): # Left (4)
-			if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
-			    VISIBUL_X_PIX = VISIBUL_X_PIX - 1
-			    print "(X,Y) = (" + str(VISIBUL_X_PIX) + "," + str(VISIBUL_Y_PIX)
-			else:
-			    VISIBUL_X_PIX = VISIBUL_X_PIX - VISIBUL_GRID_SIZE
-		    if (e.key == 262 or e.key == 275): # Right (6)
-			if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
-			    VISIBUL_X_PIX = VISIBUL_X_PIX + 1
-			    print "(X,Y) = (" + str(VISIBUL_X_PIX) + "," + str(VISIBUL_Y_PIX)
-			else:
-			    VISIBUL_X_PIX = VISIBUL_X_PIX + VISIBUL_GRID_SIZE
-		    if (e.key == 264 or e.key == 273): # Up (8)
-			if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
-			    VISIBUL_Y_PIX = VISIBUL_Y_PIX - 1
-			    print "(X,Y) = (" + str(VISIBUL_X_PIX) + "," + str(VISIBUL_Y_PIX)
-			else:
-			    VISIBUL_Y_PIX = VISIBUL_Y_PIX - VISIBUL_GRID_SIZE
-		    if (e.key == 258 or e.key == 274): # Down (2)
-			if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
-			    VISIBUL_Y_PIX = VISIBUL_Y_PIX + 1
-			    print "(X,Y) = (" + str(VISIBUL_X_PIX) + "," + str(VISIBUL_Y_PIX)
-			else:
-			    VISIBUL_Y_PIX = VISIBUL_Y_PIX + VISIBUL_GRID_SIZE
-		
-		    # Pause/Resume Visibull Cycle
-		    if (e.key == 256 or e.key == 112): # P (0)
-			visibullCycle = not visibullCycle
-			if (visibullCycle):
-			    print "Starting Visibul Grid Cycle"
-			    CurrentFrameX = 0
-			    CurrentFrameY = 0
-			else:
-			    print "Stopping Visibul Grid Cycle"
-		    
-		    if ((e.key == 99 or e.key == 266) and not visibullCycle): #C (.)
-			cycleVisibulGrid()
-		
-		# Cycle Dislay Mode
-		if (e.key == 271 or e.key == 9): # Enter
-		    cycleState()
-		
-        clock.tick(FPS)     # Main Loop
-	
-	if (CurrentState == STATE_VISIBULL):
-	    currentTime = int(time.time())
-	    
-	    if (visibullCycle) and ((currentTime - startTime) % 5 == 0) and (currentTime != lastInterval):
-		lastInterval = currentTime
-		cycleVisibulGrid()
-	    
-	    ssX = VISIBUL_X_PIX + (CurrentFrameX * VISIBUL_GRID_SIZE)
-	    ssY = VISIBUL_Y_PIX + (CurrentFrameY * VISIBUL_GRID_SIZE)
+            if (e.type == KEYDOWN):
+                #print "Key Code: " + str(e.key)
 
+                mods = pygame.key.get_mods()
+                
+                # Toggle Display On/Off
+                if (e.key == 261 or e.key == 32): # Space Key (5)
+                    toggleDisplay(CurrentState)
+                
+                # Toggle Sleep Override
+                if (e.key == 111 or e.key == 268): # O (*)
+                    sleepOverride = not sleepOverride
+                    print "Sleep Override: " + str(sleepOverride)
+                    
+                if (CurrentState == STATE_VISIBULL):
+                    # Adjust Visibull Screen Capture (Numpad Arrows)
+                    if (e.key == 260 or e.key == 276): # Left (4)
+                        if (mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT):
+                            VISIBUL_X_PIX = VISIBUL_X_PIX - 1
+                        else:
+                            VISIBUL_X_PIX = VISIBUL_X_PIX - VISIBUL_GRID_SIZE
+                    if (e.key == 262 or e.key == 275): # Right (6)
+                        if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
+                            VISIBUL_X_PIX = VISIBUL_X_PIX + 1
+                        else:
+                            VISIBUL_X_PIX = VISIBUL_X_PIX + VISIBUL_GRID_SIZE
+                    if (e.key == 264 or e.key == 273): # Up (8)
+                        if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
+                            VISIBUL_Y_PIX = VISIBUL_Y_PIX - 1
+                        else:
+                            VISIBUL_Y_PIX = VISIBUL_Y_PIX - VISIBUL_GRID_SIZE
+                    if (e.key == 258 or e.key == 274): # Down (2)
+                        if mods & pygame.KMOD_NUM or mods & pygame.KMOD_SHIFT:
+                            VISIBUL_Y_PIX = VISIBUL_Y_PIX + 1
+                        else:
+                            VISIBUL_Y_PIX = VISIBUL_Y_PIX + VISIBUL_GRID_SIZE
+
+                    print "(X,Y) = (" + str(VISIBUL_X_PIX) + "," + str(VISIBUL_Y_PIX)
+                
+                    # Pause/Resume Visibull Cycle
+                    if (e.key == 256 or e.key == 112): # P (0)
+                        visibullCycle = not visibullCycle
+                    if (visibullCycle):
+                        print "Starting Visibul Grid Cycle"
+                        CurrentFrameX = 0
+                        CurrentFrameY = 0
+                    else:
+                        print "Stopping Visibul Grid Cycle"
+                    
+                    if ((e.key == 99 or e.key == 266) and not visibullCycle): #C (.)
+                        cycleVisibulGrid()
+                
+                # Cycle Dislay Mode
+                if (e.key == 271 or e.key == 9): # Tab (Enter)
+                    StateCounter = StateCounter + 1
     
-#TODO
-# Shutdown override button
-# state change button (hold button to cycle through ON, OFF, AUTO)
+                    if (StateCounter > 2):
+                        StateCounter = 0
+                    
+                    NextState = State[StateCounter]
+                    
+                    print "Current State: " + StateText[StateCounter]
+        
+        #Maintain Framefrate
+        clock.tick(FPS)

@@ -13,8 +13,8 @@
 	},
 	"clock" : {
 		"time": {
-			"wakeup": 800,
-			"sleep": 1900,
+			"wakeup": 830,
+			"sleep": 1830,
 			"am": 800,
 			"noon": 1200,
 			"pm": 1800,
@@ -30,11 +30,15 @@
 		}
 	},
 	"visibul": {
-		"x": 595,
-		"y": 61,
+		"x": 1132,
+		"y": 127,
 		"rows": 3,
 		"columns": 3,
 		"grid_size": 30,
 		"cycle_time": 5
-	}
+	},
+    "audio": {
+        "max_amplitude": 3000,
+        "audio_rate": 8000
+    }
 }
