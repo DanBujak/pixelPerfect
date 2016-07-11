@@ -12,7 +12,6 @@ from datetime import timedelta
 # PixelPerfext Modules
 import frameGen
 import clockFunc
-from globalConfigs import *
 from configs import *
 from clockParams import *
 from emulator import *
