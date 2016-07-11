@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-from globalConfigs import *
+from configs import *
 import numpy as np
 from configs import COLOUR_BLACK, COLOUR_WHITE
 
